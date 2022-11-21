@@ -7,6 +7,8 @@ Original file is located at
     https://colab.research.google.com/drive/16gJ694On4E1TWjmW3rT6yA8O0ee3g3Eh
 """
 
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 import numpy as np
 import pandas as pd
 from ast import literal_eval
@@ -14,7 +16,7 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 
 pd.set_option('display.float_format', lambda x: '%.2e' % x)
-
+pd.options.mode.chained_assignment = None  # default='warn'
 
 def read_nist(nist_file,):
   data_nist = pd.read_excel(nist_file)
@@ -103,7 +105,7 @@ def read_adas4(adas4_file, add_process_type, ):
   df.iloc[:,2:] = df.iloc[:,2:].astype(float)
    
   df_pr = df_pr.rename(columns={0:'pr_type'})
-  
+  Aki_adas = df[{'Level_j', 'Level_i', 'A3'}]
   df = df.drop(['A3'], axis=1)
   l.remove('A3')
   if add_process_type == 'S':
@@ -117,8 +119,28 @@ def read_adas4(adas4_file, add_process_type, ):
     df_pr = df_pr.drop(['A3'], axis=1)'''
   df_pr.iloc[:,2:] = df_pr.iloc[:,2:].astype(float)
 
-  return df, df_pr, df_conf
+  return df, df_pr, df_conf, Aki_adas
 
+def adas_Aij(Aki_adas, df_coef, lvl_i):
+    l = []
+    for i in list(range(1, 20)):
+      if str(i) not in list(Aki_adas.Level_j.loc[Aki_adas.Level_i == lvl_i]) and i != int(lvl_i):
+        l.append(str(i))
+
+    s = pd.DataFrame()
+    s['A3'] = [1e-30]* len(l)
+
+    s['Level_j'] = l
+    s['Level_i'] = lvl_i
+    Aji = pd.concat([Aki_adas.loc[Aki_adas.Level_i == lvl_i], s], axis = 0)
+    Aji.Level_j=Aji.Level_j.astype(int)
+    Aji = Aji.sort_values('Level_j').reset_index(drop=True)
+    Aji.Level_j=Aji.Level_j.astype(str)
+
+    df_coef['Aji'] = Aji['A3']
+    df_coef['Aji'] = Aji['A3']
+    
+    return Aji, df_coef
 
 def interp_coef(Te_val, temperature_range, df_to_interp):
   l = []
@@ -183,9 +205,10 @@ def nist_preproc(df_nist, df_config, df_coef, lvl_i):
     l = []
     temp = [['1s1', 0], ['2s1', 1], ['2s1', 0], ['2p1', 4], ['2p1', 1], ['3s1', 1], ['3s1', 0], ['3p1', 4],
             ['3d1', 7], ['3d1', 2], ['3p1', 1], ['4s1', 1], ['4s1', 0], ['4p1', 4], ['4d1', 7], ['4d1', 2],
-            ['4f1', 1], ['4f1', 3], ['4p1', 1]]
+            ['4f1', 1], ['4f1', 3], ['4p1', 1]] 
+
     for i in df_A.index:
-      if df_A[col_str][i]== '1s1' :
+      if df_A[col_str][i] == '1s1' :
           l.append('1')
       elif df_A[col_str][i]== '2s1' and df_A[j_str][i]== 1:
           l.append('2')     
@@ -224,31 +247,31 @@ def nist_preproc(df_nist, df_config, df_coef, lvl_i):
       elif df_A[col_str][i]== '4p1' and df_A[j_str][i]== 1:
           l.append('19')  
       else: idx_to_del.append(i)
-      if j == '1':
-        l1 = l
-      else: 
-        l2 = l
+    if j == '1':
+      l1 = l
+    else: 
+      l2 = l
 
   df_A['Level_i'] = l1
   df_A['Level_j'] = l2
 
   df_A = df_A.loc[df_A.Acc == 'AAA']
-  Aji = df_A[{'Level_i', 'Level_j'	, 'Aki(s^-1)'}].loc[(df_A.Level_i == lvl_i) | (df_A.Level_j == lvl_i)].reset_index(drop=True)
+  print(df_A)
+  Aji = df_A[{'Level_i', 'Level_j'	, 'Aki(s^-1)'}].loc[df_A.Level_i == lvl_i].reset_index(drop=True)
   Aji = Aji.rename(columns = {'Aki(s^-1)' : 'Aki'})
-
   l = []
   for i in list(range(1, 20)):
     if str(i) not in list(Aji.Level_j) and i != int(lvl_i):
       l.append(str(i))
 
   s = pd.DataFrame()
-  s['Aki'] = [0.0]* len(l)
+  s['Aki'] = [1e-30]* len(l)
   s['Level_j'] = l
   s['Level_i'] = lvl_i
   Aji = pd.concat([Aji, s], axis = 0)
   Aji.Level_j=Aji.Level_j.astype(int)
   Aji = Aji.sort_values('Level_j').reset_index(drop=True)
-
+  Aji.Level_j=Aji.Level_j.astype(str)
   df_coef['Aji'] = Aji['Aki']
   df_coef['Aji'] = Aji['Aki']
 
@@ -257,10 +280,10 @@ def nist_preproc(df_nist, df_config, df_coef, lvl_i):
 def matrix_cols_calc(ne, Si, qij, df_coef, lvl_i):
   mask_idx_Aji =  df_coef.iloc[df_coef.index < int(lvl_i)-1].index
   m_Aji = df_coef
-  m_Aji.Aji[mask_idx_Aji] = 0.0
+  m_Aji.Aji[mask_idx_Aji] = 1e-30
   mask_idx_Aij =  df_coef.iloc[df_coef.index > int(lvl_i)-1].index
   m_Aij = df_coef
-  m_Aij.Aji[mask_idx_Aij] = 0.0
+  m_Aij.Aji[mask_idx_Aij] = 1e-30
   Cii = -sum(ne*df_coef['Si']/18 + ne*df_coef['qij'] + m_Aij.Aji)
   Cij =  m_Aji.Aji + ne*df_coef['qji'] #? check if it works correctly
   C_temp = list(Cij)
@@ -282,23 +305,24 @@ kB = 8.617e-5 #eV/K
 df_nist = read_nist('data_nist.xlsx')
 #df_ex, df_i, df_config = read_adas4("/content/drive/MyDrive/CRM_data/helike_hps02he.dat", 'S') 
 # df_ex, df_i, df_config = read_adas4("/content/drive/MyDrive/CRM_data/helike_pb04he0.dat", 'S') 
-df_ex, df_i, df_config = read_adas4("helike_pb04he0.dat", 'S') 
-_, df_r, _ = read_adas4("helike_kvi97#he0.dat", 'R')
+df_ex, df_i, df_config, Aki_adas = read_adas4("helike_pb04he0.dat", 'S') 
+_, df_r, _, _ = read_adas4("helike_kvi97#he0.dat", 'R')
 
-ne = 1e13 # Electron density in cm**-3
-ni = 2e13 # Ion density in cm**-3
-
-Te1 = '49.980503'
+Te1 = input('Choose temperature in range [0.043087, 43.086641] eV \n')
+ne = float(input('Choose electron density in X*e+13 cm**-3 \n')) * 1e13  # Electron density in cm**-3
 
 """
 Стационарный случай - 
 # 0 = C * n *2..19* + C'
 """
-
+Aji_full = pd.DataFrame()
 df_M =  pd.DataFrame()
 for i in list(range(1, 20)):
   qij, qji, Si, R, df_coef = coef_calc(df_ex, df_config, df_r, df_i, Te1, str(i))
-  Aji, df_coef = nist_preproc(df_nist, df_config, df_coef, str(i))
+  #Aji, df_coef = nist_preproc(df_nist, df_config, df_coef, str(i))
+  Aji, df_coef = adas_Aij(Aki_adas, df_coef, str(i))
+  #print(Aji)
+  Aji_full = pd.concat([Aji_full, Aji])
   df_M[str('lvl_') + str(i)] = matrix_cols_calc(ne, Si, qij, df_coef, str(i))
 
 df_M = df_M.drop(0, axis = 0)
@@ -306,4 +330,26 @@ C1 = df_M.lvl_1 * (-1)
 C = df_M.drop('lvl_1', axis = 1)
 
 x = np.linalg.solve(C, C1) # only sq matrix
+
 print(x)
+
+# check Aji
+
+t = pd.DataFrame(x)
+
+t668 = float(Aji_full.A3.loc[(Aji_full.Level_i == '5')&(Aji_full.Level_j == '10')])
+t728 = float(Aji_full.A3.loc[(Aji_full.Level_i == '5')&(Aji_full.Level_j == '7')])
+t706 = float(Aji_full.A3.loc[(Aji_full.Level_i == '4')&(Aji_full.Level_j == '6')])
+
+print(t668 * t.iloc[9] / t728 / t.iloc[6])
+print(t706 * t.iloc[5] / t728 / t.iloc[6])
+
+
+
+
+
+
+
+
+
+
