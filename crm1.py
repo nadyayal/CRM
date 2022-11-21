@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from ast import literal_eval
 import matplotlib.pyplot as plt
-import scipy as sp
+from scipy.interpolate import interp1d
 
 pd.set_option('display.float_format', lambda x: '%.2e' % x)
 
@@ -22,23 +22,15 @@ def read_nist(nist_file,):
     if data_nist['Aki(s^-1)'][i] == '  ':
       data_nist['Aki(s^-1)'][i] = '0'
   data_nist['Aki(s^-1)'] = data_nist['Aki(s^-1)'].astype(float)
-
-  for i in data_nist['conf_i'].index:
-    data_nist['conf_i'][i] = data_nist['conf_i'][i].replace(' ', '')
-    if '1s.' in data_nist['conf_i'][i]:
-      data_nist['conf_i'][i] = data_nist['conf_i'][i].replace('1s.', '')
-      data_nist['conf_i'][i] = data_nist['conf_i'][i] + '1'
-    if '2s.' in data_nist['conf_i'][i]:
-      data_nist['conf_i'][i] = data_nist['conf_i'][i].replace('2s.', '')
-      data_nist['conf_i'][i] = data_nist['conf_i'][i] + '1'
-  for i in data_nist['conf_k'].index:
-    data_nist['conf_k'][i] = data_nist['conf_k'][i].replace(' ', '')
-    if '1s.' in data_nist['conf_k'][i]:
-      data_nist['conf_k'][i] = data_nist['conf_k'][i].replace('1s.', '')
-      data_nist['conf_k'][i] = data_nist['conf_k'][i] + '1'
-    if '2s.' in data_nist['conf_k'][i]:
-      data_nist['conf_k'][i] = data_nist['conf_k'][i].replace('2s.', '')
-      data_nist['conf_k'][i] = data_nist['conf_k'][i] + '1'
+  for j in ['conf_i', 'conf_k']:
+    for i in data_nist[j].index:
+      data_nist[j][i] = data_nist[j][i].replace(' ', '')
+      if '1s.' in data_nist[j][i]:
+        data_nist[j][i] = data_nist[j][i].replace('1s.', '')
+        data_nist[j][i] = data_nist[j][i] + '1'
+      if '2s.' in data_nist[j][i]:
+        data_nist[j][i] = data_nist[j][i].replace('2s.', '')
+        data_nist[j][i] = data_nist[j][i] + '1'
   data_nist = data_nist.replace({'1s2': '1s1'})
   return data_nist
 
@@ -88,15 +80,19 @@ def read_adas4(adas4_file, add_process_type, ):
           z[i][j] = z[i][j].replace('-', 'e-')
   df = pd.DataFrame(z[:])
 
+  #print(nums_from_string.get_nums(array[(line_num[0]+1)]))
+ # check process reading
   df_pr = df.loc[df[0] == add_process_type]
   df = df.loc[df[0] != add_process_type]
   if add_process_type == 'S':
     df = df.drop([17], axis = 1)
-
-  cols = ['Level_j', 'Level_i', 'A3', '1.16+04', '2.32+04', '5.80+04', '1.16+05',
+  cols = ['Level_j', 'Level_i', 'A3', '5.00+02', '1.00+03', '2.00+03', '3.00+03', '5.00+03',
+          '1.00+04', '1.50+04', '2.00+04', '3.00+04', '5.00+04', '1.00+05',
+          '1.50+05', '2.00+05', '5.00+05']
+  '''cols = ['Level_j', 'Level_i', 'A3', '1.16+04', '2.32+04', '5.80+04', '1.16+05',
         '2.32+05', '5.80+05', '1.16+06', '2.32+06', '5.80+06', '1.16+07',
-        '2.32+07', '5.80+07', '1.16+08', '2.32+08']
-
+        '2.32+07', '5.80+07', '1.16+08', '2.32+08']'''
+  
   eV = 8.61732814974056E-05
   l = ['Level_j', 'Level_i', 'A3']
   for i in cols:
@@ -108,12 +104,13 @@ def read_adas4(adas4_file, add_process_type, ):
    
   df_pr = df_pr.rename(columns={0:'pr_type'})
   
-  #Aik = df['A3']
-  
   df = df.drop(['A3'], axis=1)
   l.remove('A3')
+  if add_process_type == 'S':
+    df_pr = df_pr.drop(2, axis = 1)
+    
   for i in range(len(l)):
-    df_pr = df_pr.rename(columns={i+1: l[i]})
+    df_pr = df_pr.rename(columns={df_pr.columns[i+1]: l[i]})
   df_pr = df_pr.drop(['Level_i'], axis=1)
   df_pr = df_pr.rename(columns={'Level_j': 'Level_i'})
   '''if add_process_type == 'S':
@@ -123,40 +120,42 @@ def read_adas4(adas4_file, add_process_type, ):
   return df, df_pr, df_conf
 
 
+def interp_coef(Te_val, temperature_range, df_to_interp):
+  l = []
+  for i in df_to_interp.index:    
+    f1 = interp1d(temperature_range, df_to_interp[df_to_interp.columns[2:]].iloc[df_to_interp.index == i], kind='cubic')
+    l.append(float(f1(Te_val)))
+  return l
+
 def coef_calc(df_ex, df_config, df_r, df_i, Te1, lvl_i):
-    Uex_Te = df_ex[{'Level_i', 'Level_j'	, Te1}].loc[(df_ex.Level_i == lvl_i) | (df_ex.Level_j == lvl_i)].reset_index(drop=True)
-    for i in Uex_Te.iloc[Uex_Te.index<int(lvl_i)-1].index:
-      Uex_Te.Level_j[i] = Uex_Te.Level_i[i]
-      Uex_Te.Level_i[i] = lvl_i
-    qji = const/df_config['degeneracy'].loc[df_config['Level_i'] != lvl_i].reset_index(drop=True) * (
-    IH/kB/float(Te1)*eV)**0.5 * Uex_Te[Te1].reset_index(drop=True)
-    dE = df_config['Energy_eV'].loc[df_config['Level_i'] != lvl_i] - float(df_config['Energy_eV'].loc[df_config['Level_i'] == lvl_i])
-    exp_calc = np.exp(dE/kB/float(Te1)*eV)
-    factor = df_config['degeneracy'].loc[df_config['Level_i'] != lvl_i] / float(df_config['degeneracy'].loc[df_config['Level_i'] == lvl_i]) * exp_calc
-    qij = factor.reset_index(drop=True) * qji
+  Te_range = [float(i) for i in df_ex.columns[2:]]
+  df_ex[Te1] = interp_coef(Te1, Te_range, df_ex)
+  Uex_Te = df_ex[{'Level_i', 'Level_j'	, Te1}].loc[(df_ex.Level_i == lvl_i) | (df_ex.Level_j == lvl_i)].reset_index(drop=True)
+  for i in Uex_Te.iloc[Uex_Te.index<int(lvl_i)-1].index:
+    Uex_Te.Level_j[i] = Uex_Te.Level_i[i]
+    Uex_Te.Level_i[i] = lvl_i
+  qji = const/df_config['degeneracy'].loc[df_config['Level_i'] != lvl_i].reset_index(drop=True) * (
+  IH/kB/float(Te1)*eV)**0.5 * Uex_Te[Te1].reset_index(drop=True)
+  dE = df_config['Energy_eV'].loc[df_config['Level_i'] != lvl_i] - float(df_config['Energy_eV'].loc[df_config['Level_i'] == lvl_i])
+  exp_calc = np.exp(dE/kB/float(Te1)*eV)
+  factor = df_config['degeneracy'].loc[df_config['Level_i'] != lvl_i] / float(df_config['degeneracy'].loc[df_config['Level_i'] == lvl_i]) * exp_calc
+  qij = factor.reset_index(drop=True) * qji
   
-    rec_coef_df, ion_coef_df = df_r[{'Level_i'	, Te1}], df_i[{'Level_i'	, Te1}]
-    #Si = float(ion_coef_df[Te1].loc[ion_coef_df.Level_i==lvl_i])
-    Si = float(ion_coef_df[Te1].loc[ion_coef_df.Level_i==lvl_i])  / np.exp(
-        float(df_config['Energy_eV'].loc[df_config['Level_i'] == lvl_i])/kB/float(Te1)*eV) # / ioniz by exp?
-    R = float(rec_coef_df[Te1].loc[rec_coef_df.Level_i==lvl_i])
-    
-    df_coef = pd.DataFrame(data = Uex_Te[{'Level_j', 'Level_i'}])
-    df_coef['qij'] = qij
-    df_coef['qji'] = qji
-    df_coef['Si'] = Si
-    df_coef['R'] = R
+  df_r[Te1] = interp_coef(Te1, Te_range, df_r)
+  df_i[Te1] = interp_coef(Te1, Te_range, df_i)
 
-    #f = open('example.txt','w')
-    # работа с файлом
-    #f.write(lvl_i)
-    #f.write('qij \t qji \t Si \n')
-    #f.write(f'{qij} \t {qji} \t {Si} \n')
-    #f.write(df_coef)
-    #f.close()
-    df_coef.to_csv(r'coefs.txt', header=df_coef.columns, index=None, sep=' ', mode='a')
+  rec_coef_df, ion_coef_df = df_r[{'Level_i'	, Te1}], df_i[{'Level_i'	, Te1}]
+  #Si = float(ion_coef_df[Te1].loc[ion_coef_df.Level_i==lvl_i])
+  Si = float(ion_coef_df[Te1].loc[ion_coef_df.Level_i==lvl_i])  / np.exp(float(df_config['Energy_eV'].loc[df_config['Level_i'] == lvl_i])/kB/float(Te1)*eV) # / ioniz by exp?
+  R = float(rec_coef_df[Te1].loc[rec_coef_df.Level_i==lvl_i])
+  
+  df_coef = pd.DataFrame(data = Uex_Te[{'Level_j', 'Level_i'}])
+  df_coef['qij'] = qij
+  df_coef['qji'] = qji
+  df_coef['Si'] = Si
+  df_coef['R'] = R
 
-    return qij, qji, Si, R, df_coef
+  return qij, qji, Si, R, df_coef
 
 # NIST data pre processing 
 def nist_preproc(df_nist, df_config, df_coef, lvl_i):
@@ -182,6 +181,9 @@ def nist_preproc(df_nist, df_config, df_coef, lvl_i):
       col_str = 'conf_k'
       j_str = 'J_k'
     l = []
+    temp = [['1s1', 0], ['2s1', 1], ['2s1', 0], ['2p1', 4], ['2p1', 1], ['3s1', 1], ['3s1', 0], ['3p1', 4],
+            ['3d1', 7], ['3d1', 2], ['3p1', 1], ['4s1', 1], ['4s1', 0], ['4p1', 4], ['4d1', 7], ['4d1', 2],
+            ['4f1', 1], ['4f1', 3], ['4p1', 1]]
     for i in df_A.index:
       if df_A[col_str][i]== '1s1' :
           l.append('1')
@@ -253,13 +255,18 @@ def nist_preproc(df_nist, df_config, df_coef, lvl_i):
   return Aji, df_coef
 
 def matrix_cols_calc(ne, Si, qij, df_coef, lvl_i):
-  Cii = ne*Si + sum(ne*qij)
-  Cij = df_coef['Aji']+ne*df_coef['qji'] #? check if it works correctly - maybe create a df of all coef?
-
+  mask_idx_Aji =  df_coef.iloc[df_coef.index < int(lvl_i)-1].index
+  m_Aji = df_coef
+  m_Aji.Aji[mask_idx_Aji] = 0.0
+  mask_idx_Aij =  df_coef.iloc[df_coef.index > int(lvl_i)-1].index
+  m_Aij = df_coef
+  m_Aij.Aji[mask_idx_Aij] = 0.0
+  Cii = -sum(ne*df_coef['Si']/18 + ne*df_coef['qij'] + m_Aij.Aji)
+  Cij =  m_Aji.Aji + ne*df_coef['qji'] #? check if it works correctly
   C_temp = list(Cij)
   C_temp.insert(int(lvl_i)-1, Cii)
   lvl_vector = pd.DataFrame(data = C_temp, columns = [str('lvl_') + lvl_i])
-  lvl_vector.to_csv(r'matrix_vectors.txt', header=lvl_vector.columns, index=None, sep=' ', mode='a')
+  
   return lvl_vector
 
 #constants
@@ -282,7 +289,6 @@ ne = 1e13 # Electron density in cm**-3
 ni = 2e13 # Ion density in cm**-3
 
 Te1 = '49.980503'
-lvl_i = '3'
 
 """
 Стационарный случай - 
@@ -295,19 +301,9 @@ for i in list(range(1, 20)):
   Aji, df_coef = nist_preproc(df_nist, df_config, df_coef, str(i))
   df_M[str('lvl_') + str(i)] = matrix_cols_calc(ne, Si, qij, df_coef, str(i))
 
+df_M = df_M.drop(0, axis = 0)
 C1 = df_M.lvl_1 * (-1)
-
 C = df_M.drop('lvl_1', axis = 1)
-C_extend = pd.concat([C, C1], axis=1)
 
-a = np.array(C)
-a_ext = np.array(C_extend)
-b = np.array(C1)
-
-from numpy.linalg import matrix_rank
-print(matrix_rank(a))
-print(matrix_rank(a_ext))
-
-
-
-# матрица дб квадратная + пересчитать температуры -  в файле от юли не та темп
+x = np.linalg.solve(C, C1) # only sq matrix
+print(x)
