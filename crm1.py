@@ -179,103 +179,6 @@ def coef_calc(df_ex, df_config, df_r, df_i, Te1, lvl_i):
 
   return qij, qji, Si, R, df_coef
 
-# NIST data pre processing 
-def nist_preproc(df_nist, df_config, df_coef, lvl_i):
-  df_nist = df_nist.replace({'1s2': '1s1'})
-  l = []
-  for i in df_nist.index:
-    for j in df_config['Configuration'].index:
-      if df_nist['conf_i'][i] == df_config['Configuration'][j] and df_nist['J_i'][i] == df_config['J'][j]:
-        for k in df_config['Configuration'].index:
-          if df_nist['conf_k'][i] == df_config['Configuration'][k] and df_nist['J_k'][i] == df_config['J'][k]:
-            l.append(i)
-
-  df_A = df_nist.iloc[l]
-
-  l1 = []
-  l2 = []
-  idx_to_del = []
-  for j in ['1', '2']:
-    if j == '1':
-      col_str = 'conf_i'
-      j_str = 'J_i'
-    else: 
-      col_str = 'conf_k'
-      j_str = 'J_k'
-    l = []
-    temp = [['1s1', 0], ['2s1', 1], ['2s1', 0], ['2p1', 4], ['2p1', 1], ['3s1', 1], ['3s1', 0], ['3p1', 4],
-            ['3d1', 7], ['3d1', 2], ['3p1', 1], ['4s1', 1], ['4s1', 0], ['4p1', 4], ['4d1', 7], ['4d1', 2],
-            ['4f1', 1], ['4f1', 3], ['4p1', 1]] 
-
-    for i in df_A.index:
-      if df_A[col_str][i] == '1s1' :
-          l.append('1')
-      elif df_A[col_str][i]== '2s1' and df_A[j_str][i]== 1:
-          l.append('2')     
-      elif df_A[col_str][i]== '2s1' and df_A[j_str][i]== 0:
-          l.append('3')  
-      elif df_A[col_str][i]== '2p1' and df_A[j_str][i]== 4:
-          l.append('4')  
-      elif df_A[col_str][i]== '2p1' and df_A[j_str][i]== 1:
-          l.append('5')  
-      elif df_A[col_str][i]== '3s1' and df_A[j_str][i]== 1:
-          l.append('6')  
-      elif df_A[col_str][i]== '3s1' and df_A[j_str][i]== 0:
-          l.append('7')     
-      elif df_A[col_str][i]== '3p1' and df_A[j_str][i]== 4:
-          l.append('8')  
-      elif df_A[col_str][i]== '3d1' and df_A[j_str][i]== 7:
-          l.append('9')  
-      elif df_A[col_str][i]== '3d1' and df_A[j_str][i]== 2:
-          l.append('10')  
-      elif df_A[col_str][i]== '3p1' and df_A[j_str][i]== 1:
-          l.append('11')  
-      elif df_A[col_str][i]== '4s1' and df_A[j_str][i]== 1:
-          l.append('12')     
-      elif df_A[col_str][i]== '4s1' and df_A[j_str][i]== 0:
-          l.append('13')  
-      elif df_A[col_str][i]== '4p1' and df_A[j_str][i]== 4:
-          l.append('14')  
-      elif df_A[col_str][i]== '4d1' and df_A[j_str][i]== 7:
-          l.append('15')  
-      elif df_A[col_str][i]== '4d1' and df_A[j_str][i]== 2:
-          l.append('16')  
-      elif df_A[col_str][i]== '4f1' and df_A[j_str][i]== 1:
-          l.append('17')     
-      elif df_A[col_str][i]== '4f1' and df_A[j_str][i]== 3:
-          l.append('18')  
-      elif df_A[col_str][i]== '4p1' and df_A[j_str][i]== 1:
-          l.append('19')  
-      else: idx_to_del.append(i)
-    if j == '1':
-      l1 = l
-    else: 
-      l2 = l
-
-  df_A['Level_i'] = l1
-  df_A['Level_j'] = l2
-
-  df_A = df_A.loc[df_A.Acc == 'AAA']
-  print(df_A)
-  Aji = df_A[{'Level_i', 'Level_j'	, 'Aki(s^-1)'}].loc[df_A.Level_i == lvl_i].reset_index(drop=True)
-  Aji = Aji.rename(columns = {'Aki(s^-1)' : 'Aki'})
-  l = []
-  for i in list(range(1, 20)):
-    if str(i) not in list(Aji.Level_j) and i != int(lvl_i):
-      l.append(str(i))
-
-  s = pd.DataFrame()
-  s['Aki'] = [1e-30]* len(l)
-  s['Level_j'] = l
-  s['Level_i'] = lvl_i
-  Aji = pd.concat([Aji, s], axis = 0)
-  Aji.Level_j=Aji.Level_j.astype(int)
-  Aji = Aji.sort_values('Level_j').reset_index(drop=True)
-  Aji.Level_j=Aji.Level_j.astype(str)
-  df_coef['Aji'] = Aji['Aki']
-  df_coef['Aji'] = Aji['Aki']
-
-  return Aji, df_coef
 
 def matrix_cols_calc(ne, Si, qij, df_coef, lvl_i):
   mask_idx_Aji =  df_coef.iloc[df_coef.index < int(lvl_i)-1].index
@@ -301,15 +204,17 @@ const = 2.1716e-8 #cm3 s-1 #for excitation rate coef
 IH = 13.6048 #eV
 kB = 8.617e-5 #eV/K
 
-# df_nist = read_nist('/content/drive/MyDrive/CRM_data/data_nist.xlsx')
-df_nist = read_nist('data_nist.xlsx')
-#df_ex, df_i, df_config = read_adas4("/content/drive/MyDrive/CRM_data/helike_hps02he.dat", 'S') 
-# df_ex, df_i, df_config = read_adas4("/content/drive/MyDrive/CRM_data/helike_pb04he0.dat", 'S') 
+
 df_ex, df_i, df_config, Aki_adas = read_adas4("helike_pb04he0.dat", 'S') 
 _, df_r, _, _ = read_adas4("helike_kvi97#he0.dat", 'R')
 
+
+
+'''
 Te1 = input('Choose temperature in range [0.043087, 43.086641] eV \n')
-ne = float(input('Choose electron density in X*e+13 cm**-3 \n')) * 1e13  # Electron density in cm**-3
+ne = float(input('Choose electron density in [0.1, 10]*e+12 cm**-3 \n')) * 1e12  # Electron density in cm**-3
+
+# почему при Te < 5 получается отриц населенности (все населенности - )
 
 """
 Стационарный случай - 
@@ -347,13 +252,19 @@ R_706_728 = t706 * t.iloc[5] / t728 / t.iloc[6]
 print(t668 * t.iloc[9] / t728 / t.iloc[6])
 print(t706 * t.iloc[5] / t728 / t.iloc[6])
 
-R1 = []
-R2 = []
+'''
 
-for m in np.linspace(1e12, 1e13,10):
-    ne = m
-    for k in np.linspace(5, 40, 10):
-        Te1 = k
+df_R1 = pd.DataFrame()
+df_R2 = pd.DataFrame()
+
+te_range = np.linspace(5, 40, 3)
+ne_range = np.linspace(1e12, 1e13, 3)
+for k in te_range:    
+    Te1 = k
+    R1 = []
+    R2 = []
+    for m in ne_range:
+        ne = m
         Aji_full = pd.DataFrame()
         df_M =  pd.DataFrame()
         for i in list(range(1, 20)):
@@ -384,10 +295,10 @@ for m in np.linspace(1e12, 1e13,10):
         print(R_668_728)
         print(R_706_728)
 
-
-
-
-
-
+    df_R1[str(Te1)] = R1
+    df_R2[str(Te1)] = R2
+    
+df_R1['ne'] = ne_range
+df_R2['ne'] = ne_range
 
 
