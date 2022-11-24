@@ -341,10 +341,48 @@ t668 = float(Aji_full.A3.loc[(Aji_full.Level_i == '5')&(Aji_full.Level_j == '10'
 t728 = float(Aji_full.A3.loc[(Aji_full.Level_i == '5')&(Aji_full.Level_j == '7')])
 t706 = float(Aji_full.A3.loc[(Aji_full.Level_i == '4')&(Aji_full.Level_j == '6')])
 
+R_668_728 = t668 * t.iloc[9] / t728 / t.iloc[6]
+R_706_728 = t706 * t.iloc[5] / t728 / t.iloc[6]
+
 print(t668 * t.iloc[9] / t728 / t.iloc[6])
 print(t706 * t.iloc[5] / t728 / t.iloc[6])
 
+R1 = []
+R2 = []
 
+for m in np.linspace(1e12, 1e13,10):
+    ne = m
+    for k in np.linspace(5, 40, 10):
+        Te1 = k
+        Aji_full = pd.DataFrame()
+        df_M =  pd.DataFrame()
+        for i in list(range(1, 20)):
+          qij, qji, Si, R, df_coef = coef_calc(df_ex, df_config, df_r, df_i, Te1, str(i))
+          Aji, df_coef = adas_Aij(Aki_adas, df_coef, str(i))
+          Aji_full = pd.concat([Aji_full, Aji])
+          df_M[str('lvl_') + str(i)] = matrix_cols_calc(ne, Si, qij, df_coef, str(i))
+    
+        df_M = df_M.drop(0, axis = 0)
+    
+        C1 = df_M.lvl_1 * (-1)
+        C = df_M.drop('lvl_1', axis = 1)
+    
+        x = np.linalg.solve(C, C1) # only sq matrix
+    
+        print(x)
+    
+        t = pd.DataFrame(x)
+    
+        t668 = float(Aji_full.A3.loc[(Aji_full.Level_i == '5')&(Aji_full.Level_j == '10')])
+        t728 = float(Aji_full.A3.loc[(Aji_full.Level_i == '5')&(Aji_full.Level_j == '7')])
+        t706 = float(Aji_full.A3.loc[(Aji_full.Level_i == '4')&(Aji_full.Level_j == '6')])
+    
+        R_668_728 = t668 * t.iloc[9] / t728 / t.iloc[6]
+        R_706_728 = t706 * t.iloc[5] / t728 / t.iloc[6]
+        R1.append(R_668_728.values)
+        R2.append(R_706_728.values)
+        print(R_668_728)
+        print(R_706_728)
 
 
 
