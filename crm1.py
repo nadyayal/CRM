@@ -129,7 +129,8 @@ def interp_coef(Te_val, temperature_range, df_to_interp):
     l.append(float(f1(Te_val)))
   return l
 
-def coef_calc(df_ex, df_config, df_r, df_i, Te1, lvl_i):
+# doesnt work anymore
+def coef_calc_old(df_ex, df_config, df_r, df_i, Te1, lvl_i):
     Te_range = [float(j) for j in df_ex.columns[2:]]
     if float(Te1) not in Te_range:
         df_ex[Te1] = interp_coef(Te1, Te_range, df_ex)
@@ -160,7 +161,7 @@ def coef_calc(df_ex, df_config, df_r, df_i, Te1, lvl_i):
     df_i[Te1] = interp_coef(Te1, Te_range, df_i)
     
     rec_coef_df, ion_coef_df = df_r[{'Level_i'	, Te1}], df_i[{'Level_i', Te1}]
-    #Si = float(ion_coef_df[Te1].loc[ion_coef_df.Level_i==lvl_i])
+
     Si = float(ion_coef_df[Te1].loc[ion_coef_df.Level_i==lvl_i])  / np.exp((ion_potential - float(
         df_config['Energy_eV'].loc[df_config['Level_i'] == lvl_i]))/float(Te1))
     R = float(rec_coef_df[Te1].loc[rec_coef_df.Level_i==lvl_i])
@@ -171,22 +172,76 @@ def coef_calc(df_ex, df_config, df_r, df_i, Te1, lvl_i):
     return df_coef
 
 
-def matrix_cols_calc(ne, df_coef, Aji_full, lvl_i):
+def coef_calc(df_ex, df_i, df_config, Te1):
+    Te_range = [float(j) for j in df_ex.columns[2:]]
+    if float(Te1) not in Te_range:
+        df_ex[Te1] = interp_coef(Te1, Te_range, df_ex)
+        df_i[Te1] = interp_coef(Te1, Te_range, df_i)
+    
+    df_coef = pd.DataFrame()
+    qij_list = []
+    qji_list = []
+    for i in list(range(1, 19)):
+        lvl_i = str(i)
+        Yij = df_ex[{'Level_i', 'Level_j', Te1}].loc[(df_ex.Level_i == lvl_i)].reset_index(drop=True)
+        
+        lvl_j = list(Yij['Level_j'])
+        
+        dE = abs(df_config['Energy_eV'].loc[df_config['Level_i'].isin(lvl_j)]- float(
+            df_config['Energy_eV'].loc[df_config['Level_i'] == lvl_i])).reset_index(drop=True) 
+        
+        wi = float(df_config['degeneracy'].loc[df_config['Level_i'] == lvl_i])
+        wj = df_config['degeneracy'].loc[df_config['Level_i'].isin(lvl_j)].reset_index(drop=True)
+        
+        Y = Yij[Te1].reset_index(drop=True)
+        
+        qij = const / wi * (IH/float(Te1))**0.5 * np.exp(-dE/float(Te1)) * Y
+        
+        qji = wj / wi * np.exp(-dE/float(Te1)) * qij
+        
+        #qji = const * 1/wj*(IH/float(Te1))**0.5*Y
+        
+        df_coef = pd.concat([df_coef, pd.DataFrame(data = Yij[{'Level_j', 'Level_i'}])], axis=0)
+        for i in qij.values:
+            qij_list.append(float(i))
+        for i in qji.values:
+            qji_list.append(float(i))  
+    
+    df_coef['qij'] = qij_list
+    df_coef['qji'] = qji_list
+    
+    df_s = pd.DataFrame()
+    s = []
+    for i in list(range(1, 20)):        
+        lvl_i = str(i)
+        
+        ion_coef_df = df_i[{'Level_i', Te1}]
+        Si = float(ion_coef_df[Te1].loc[ion_coef_df.Level_i==lvl_i])  / np.exp((ion_potential - float(
+            df_config['Energy_eV'].loc[df_config['Level_i'] == lvl_i]))/float(Te1))
+        s.append(Si)
+    df_s['Level_i'] = df_i['Level_i'].reset_index(drop=True)
+    df_s['Si'] = s
+
+    return df_coef, df_s
+
+def matrix_cols_calc(ne, df_coef, df_s, Aji_full, lvl_i):
     m_Aij = Aji_full.loc[Aji_full.Level_j == lvl_i].reset_index(drop=True)
     m_Aji = Aji_full.loc[Aji_full.Level_i == lvl_i].reset_index(drop=True)
-    
-    Cii = -sum(ne*df_coef['Si']/18 + ne*df_coef['qij'] + m_Aij.A3)
-    Cij =  m_Aji.A3 + ne*df_coef['qji']
+    Q_ex = pd.concat([df_coef['qji'].loc[df_coef.Level_j == lvl_i],df_coef['qij'].loc[
+        df_coef.Level_i == lvl_i]]).reset_index(drop=True)
+    Q_de_ex = pd.concat([df_coef['qij'].loc[df_coef.Level_j == lvl_i],df_coef['qji'].loc[
+        df_coef.Level_i == lvl_i]]).reset_index(drop=True)
+    Cii = - sum(ne*Q_ex + m_Aij.A3) - float(df_s.Si.loc[df_s.Level_i == lvl_i])
+    Cij =  m_Aji.A3 + ne*Q_de_ex
     C_temp = list(Cij)
     C_temp.insert(int(lvl_i)-1, Cii)
-    lvl_vector = pd.DataFrame(data = C_temp, columns = [str('lvl_') + lvl_i])
+    lvl_vector = pd.DataFrame(data = C_temp, columns = [str('lvl_') + lvl_i]) # создает столбец соответствующий искомому состояния
+
     return lvl_vector
 
 
 #constants
 
-
-e = 4.8e-10
 eV = 8.61732814974056E-05
 h = 4.135667669e-15 #eV*s
 c = 29979245800 #cm/s
@@ -194,122 +249,36 @@ const = 2.1716e-8 #cm3 s-1 #for excitation rate coef
 IH = 13.6048 #eV
 ion_potential = 198310.8 * h * c # cm-1 -> eV
 
+# считывание файлов
 df_ex, df_i, df_config, Aki_adas = read_adas4("helike_hps02he.dat", 'S') 
-_, df_r, _, _ = read_adas4("helike_kvi97#he0.dat", 'R')
+#_, df_r, _, _ = read_adas4("helike_kvi97#he0.dat", 'R')
 
-
+# задаем электронную температуру и концентрацию
 Te1 = input('Choose temperature in range [0.99961, 19992.201307] eV \n')
 ne = float(input('Choose electron density in [0.1, 10]*e+12 cm**-3 \n')) * 1e12  # Electron density in cm**-3
-
 
 """
 Стационарный случай - 
 # 0 = C * n *2..19* + C'
 """
-Aji_full = pd.DataFrame()
-df_M =  pd.DataFrame()
 
+# создаем датасет коэф Эйнштейна для каждого перехода. Если с низшего на высший, то = 1е-30
+Aji_full = pd.DataFrame()
 for i in list(range(1, 20)):
   Aji = adas_Aij(Aki_adas, str(i))
   Aji_full = pd.concat([Aji_full, Aji])
 
-'''
-# works for lvl 1
-    l = []
-    for i in list(range(1, 20)):
-      if str(i) not in list(Aki_adas.Level_j.loc[Aki_adas.Level_i == lvl_i]) and i != int(lvl_i):
-        l.append(str(i))
-'''
+# считаем qij, qji, Si 
+df_coef, df_s = coef_calc(df_ex, df_i, df_config, Te1)
 
-Te_range = [float(j) for j in df_ex.columns[2:]]
-if float(Te1) not in Te_range:
-    df_ex[Te1] = interp_coef(Te1, Te_range, df_ex)
-
-
-df_coef = pd.DataFrame()
-qij_list = []
-qji_list = []
-for i in list(range(1, 19)):
-    lvl_i = str(i)
-    Yij = df_ex[{'Level_i', 'Level_j', Te1}].loc[(df_ex.Level_i == lvl_i)].reset_index(drop=True)
-    
-    lvl_j = list(Yij['Level_j'])
-    
-    dE = abs(df_config['Energy_eV'].loc[df_config['Level_i'].isin(lvl_j)]- float(
-        df_config['Energy_eV'].loc[df_config['Level_i'] == lvl_i])).reset_index(drop=True) 
-    
-    wi = float(df_config['degeneracy'].loc[df_config['Level_i'] == lvl_i])
-    wj = df_config['degeneracy'].loc[df_config['Level_i'].isin(lvl_j)].reset_index(drop=True)
-    
-    Y = Yij[Te1].reset_index(drop=True)
-    
-    qij = const / wi * (IH/float(Te1))**0.5 * np.exp(-dE/float(Te1)) * Y
-    
-    qji = wi / wj * np.exp(-dE/float(Te1)) * qij
-    
-    #qji = const * 1/wj*(IH/float(Te1))**0.5*Y
-    
-    df_coef = pd.concat([df_coef, pd.DataFrame(data = Yij[{'Level_j', 'Level_i'}])], axis=0)
-    for i in qij.values:
-        qij_list.append(float(i))
-    for i in qji.values:
-        qji_list.append(float(i))  
-
-df_coef['qij'] = qij_list
-df_coef['qji'] = qji_list
-
-
-
-
-
-lvl_i = '5'
-Yij = df_ex[{'Level_i', 'Level_j', Te1}].loc[(df_ex.Level_i == lvl_i)].reset_index(drop=True)
-
-lvl_j = list(Yij['Level_j'])
-
-dE = abs(df_config['Energy_eV'].loc[df_config['Level_i'].isin(lvl_j)]- float(
-    df_config['Energy_eV'].loc[df_config['Level_i'] == lvl_i])).reset_index(drop=True) 
-
-wi = float(df_config['degeneracy'].loc[df_config['Level_i'] == lvl_i])
-wj = df_config['degeneracy'].loc[df_config['Level_i'].isin(lvl_j)].reset_index(drop=True)
-
-Y = Yij[Te1].reset_index(drop=True)
-
-qij = const / wi * (IH/float(Te1))**0.5 * np.exp(-dE/float(Te1)) * Y
-
-qji = wj / wi * np.exp(-dE/float(Te1)) * qij
-
-#qji = const * 1/wj*(IH/float(Te1))**0.5*Y
-
-df_coef = pd.DataFrame(data = Yij[{'Level_j', 'Level_i'}])
-
-df_coef['qij'] = qij
-df_coef['qji'] = qji
-
-'''df_coef['qij'] = pd.concat([qji[:int(lvl_i)-1], qij[int(lvl_i)-1:]], axis=0)
-df_coef['qji'] = pd.concat([qij[:int(lvl_i)-1], 
-                qji[int(lvl_i)-1:]], axis=0)'''
-
-
-
-
-
-
-
-
-
+# создаем матрицу из столбцов для каждого состояния
+df_M =  pd.DataFrame()
 for i in list(range(1, 20)):
-  df_coef = coef_calc(df_ex, df_config, df_r, df_i, Te1, str(i))
-  '''
-  with pd.ExcelWriter('check_coef.xlsx',
-                    mode='a') as writer:  
-    df_coef.to_excel(writer, sheet_name= str('lvl_' + str(i)))
-    '''
-  #df_coef.to_excel('check_coef.xlsx')
-  df_M[str('lvl_') + str(i)] = matrix_cols_calc(ne, df_coef, Aji_full, str(i))
-  
-df_M.to_excel('check_matrix.xlsx')
+  df_M[str('lvl_') + str(i)] = matrix_cols_calc(ne, df_coef, df_s, Aji_full, str(i))
 
+#df_M.to_excel('check_matrix.xlsx')
+
+# Считаем, что n1 = 1, делаем усеченную матрицу и отбрасываем первую строку, первый столбец это теперь C1
 df_M = df_M.drop(0, axis = 0)
 C1 = df_M.lvl_1 * (-1)
 C = df_M.drop('lvl_1', axis = 1)
