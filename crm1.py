@@ -18,23 +18,6 @@ from scipy.interpolate import interp1d
 pd.set_option('display.float_format', lambda x: '%.2e' % x)
 pd.options.mode.chained_assignment = None  # default='warn'
 
-def read_nist(nist_file,):
-  data_nist = pd.read_excel(nist_file)
-  for i in data_nist['Aki(s^-1)'].index:
-    if data_nist['Aki(s^-1)'][i] == '  ':
-      data_nist['Aki(s^-1)'][i] = '0'
-  data_nist['Aki(s^-1)'] = data_nist['Aki(s^-1)'].astype(float)
-  for j in ['conf_i', 'conf_k']:
-    for i in data_nist[j].index:
-      data_nist[j][i] = data_nist[j][i].replace(' ', '')
-      if '1s.' in data_nist[j][i]:
-        data_nist[j][i] = data_nist[j][i].replace('1s.', '')
-        data_nist[j][i] = data_nist[j][i] + '1'
-      if '2s.' in data_nist[j][i]:
-        data_nist[j][i] = data_nist[j][i].replace('2s.', '')
-        data_nist[j][i] = data_nist[j][i] + '1'
-  data_nist = data_nist.replace({'1s2': '1s1'})
-  return data_nist
 
 def read_adas4(adas4_file, add_process_type, ):
   with open(adas4_file) as file:
@@ -56,7 +39,7 @@ def read_adas4(adas4_file, add_process_type, ):
   df_conf = pd.concat([df2, df1]).reset_index().drop(['index'], axis=1) # got config dataset
   df_conf['Energy'] = df_conf['Energy'].astype(float)
   df_conf['Energy_eV'] = [i*h*c for i in df_conf.Energy[:]] #transfering energy to eV
-  df_conf = df_conf.drop(['Energy'], axis=1)
+  #df_conf = df_conf.drop(['Energy'], axis=1)
   df_conf['Configuration'] = df_conf['Configuration'].str.lower()
  
   J_list = []
@@ -88,12 +71,12 @@ def read_adas4(adas4_file, add_process_type, ):
   df = df.loc[df[0] != add_process_type]
   if add_process_type == 'S':
     df = df.drop([17], axis = 1)
-  cols = ['Level_j', 'Level_i', 'A3', '5.00+02', '1.00+03', '2.00+03', '3.00+03', '5.00+03',
+  '''cols = ['Level_j', 'Level_i', 'A3', '5.00+02', '1.00+03', '2.00+03', '3.00+03', '5.00+03',
           '1.00+04', '1.50+04', '2.00+04', '3.00+04', '5.00+04', '1.00+05',
-          '1.50+05', '2.00+05', '5.00+05']
-  '''cols = ['Level_j', 'Level_i', 'A3', '1.16+04', '2.32+04', '5.80+04', '1.16+05',
+          '1.50+05', '2.00+05', '5.00+05']'''
+  cols = ['Level_j', 'Level_i', 'A3', '1.16+04', '2.32+04', '5.80+04', '1.16+05',
         '2.32+05', '5.80+05', '1.16+06', '2.32+06', '5.80+06', '1.16+07',
-        '2.32+07', '5.80+07', '1.16+08', '2.32+08']'''
+        '2.32+07', '5.80+07', '1.16+08', '2.32+08'] # helike_hps02he
   
   eV = 8.61732814974056E-05
   l = ['Level_j', 'Level_i', 'A3']
@@ -121,7 +104,7 @@ def read_adas4(adas4_file, add_process_type, ):
 
   return df, df_pr, df_conf, Aki_adas
 
-def adas_Aij(Aki_adas, df_coef, lvl_i):
+def adas_Aij(Aki_adas, lvl_i):
     l = []
     for i in list(range(1, 20)):
       if str(i) not in list(Aki_adas.Level_j.loc[Aki_adas.Level_i == lvl_i]) and i != int(lvl_i):
@@ -136,85 +119,88 @@ def adas_Aij(Aki_adas, df_coef, lvl_i):
     Aji.Level_j=Aji.Level_j.astype(int)
     Aji = Aji.sort_values('Level_j').reset_index(drop=True)
     Aji.Level_j=Aji.Level_j.astype(str)
-
-    df_coef['Aji'] = Aji['A3']
-    df_coef['Aji'] = Aji['A3']
     
-    return Aji, df_coef
+    return Aji
 
 def interp_coef(Te_val, temperature_range, df_to_interp):
   l = []
   for i in df_to_interp.index:    
-    f1 = interp1d(temperature_range, df_to_interp[df_to_interp.columns[2:]].iloc[df_to_interp.index == i], kind='cubic')
+    f1 = interp1d(temperature_range, df_to_interp[df_to_interp.columns[2:]].iloc[df_to_interp.index == i], kind='linear')
     l.append(float(f1(Te_val)))
   return l
 
 def coef_calc(df_ex, df_config, df_r, df_i, Te1, lvl_i):
-  Te_range = [float(i) for i in df_ex.columns[2:]]
-  df_ex[Te1] = interp_coef(Te1, Te_range, df_ex)
-  Uex_Te = df_ex[{'Level_i', 'Level_j'	, Te1}].loc[(df_ex.Level_i == lvl_i) | (df_ex.Level_j == lvl_i)].reset_index(drop=True)
-  for i in Uex_Te.iloc[Uex_Te.index<int(lvl_i)-1].index:
-    Uex_Te.Level_j[i] = Uex_Te.Level_i[i]
-    Uex_Te.Level_i[i] = lvl_i
-  qji = const/df_config['degeneracy'].loc[df_config['Level_i'] != lvl_i].reset_index(drop=True) * (
-  IH/kB/float(Te1)*eV)**0.5 * Uex_Te[Te1].reset_index(drop=True)
-  dE = df_config['Energy_eV'].loc[df_config['Level_i'] != lvl_i] - float(df_config['Energy_eV'].loc[df_config['Level_i'] == lvl_i])
-  exp_calc = np.exp(dE/kB/float(Te1)*eV)
-  factor = df_config['degeneracy'].loc[df_config['Level_i'] != lvl_i] / float(df_config['degeneracy'].loc[df_config['Level_i'] == lvl_i]) * exp_calc
-  qij = factor.reset_index(drop=True) * qji
-  
-  df_r[Te1] = interp_coef(Te1, Te_range, df_r)
-  df_i[Te1] = interp_coef(Te1, Te_range, df_i)
+    Te_range = [float(j) for j in df_ex.columns[2:]]
+    if float(Te1) not in Te_range:
+        df_ex[Te1] = interp_coef(Te1, Te_range, df_ex)
+    Yij = df_ex[{'Level_i', 'Level_j', Te1}].loc[(df_ex.Level_i == lvl_i) | (df_ex.Level_j == lvl_i)].reset_index(drop=True)
+    
+    
+    dE = (df_config['Energy_eV'].loc[df_config['Level_i'] != lvl_i] - float(
+        df_config['Energy_eV'].loc[df_config['Level_i'] == lvl_i])).reset_index(drop=True)
+    #print(dE)
+    
+    wi = float(df_config['degeneracy'].loc[df_config['Level_i'] == lvl_i])
+    wj = df_config['degeneracy'].loc[df_config['Level_i'] != lvl_i].reset_index(drop=True)
+    Y = Yij[Te1].reset_index(drop=True)
+    
+    qij = const / wi * (IH/float(Te1))**0.5 * np.exp(-dE/float(Te1)) * Y
+    
+    qji = wi / wj * np.exp(-dE/float(Te1)) * qij
+    df_coef = pd.DataFrame(data = Yij[{'Level_j', 'Level_i'}])
+    
+    #df_coef['qij'] = qij
+    #df_coef['qji'] = qji
+    
+    df_coef['qij'] = pd.concat([qji[:int(lvl_i)-1], qij[int(lvl_i)-1:]], axis=0)
+    df_coef['qji'] = pd.concat([qij[:int(lvl_i)-1], 
+                    qji[int(lvl_i)-1:]], axis=0)
+    
+    df_r[Te1] = interp_coef(Te1, Te_range, df_r)
+    df_i[Te1] = interp_coef(Te1, Te_range, df_i)
+    
+    rec_coef_df, ion_coef_df = df_r[{'Level_i'	, Te1}], df_i[{'Level_i', Te1}]
+    #Si = float(ion_coef_df[Te1].loc[ion_coef_df.Level_i==lvl_i])
+    Si = float(ion_coef_df[Te1].loc[ion_coef_df.Level_i==lvl_i])  / np.exp((ion_potential - float(
+        df_config['Energy_eV'].loc[df_config['Level_i'] == lvl_i]))/float(Te1))
+    R = float(rec_coef_df[Te1].loc[rec_coef_df.Level_i==lvl_i])
+    
+    df_coef['Si'] = Si
+    df_coef['R'] = R
+    #print(qji)
+    return df_coef
 
-  rec_coef_df, ion_coef_df = df_r[{'Level_i'	, Te1}], df_i[{'Level_i'	, Te1}]
-  #Si = float(ion_coef_df[Te1].loc[ion_coef_df.Level_i==lvl_i])
-  Si = float(ion_coef_df[Te1].loc[ion_coef_df.Level_i==lvl_i])  / np.exp(float(df_config['Energy_eV'].loc[df_config['Level_i'] == lvl_i])/kB/float(Te1)*eV) # / ioniz by exp?
-  R = float(rec_coef_df[Te1].loc[rec_coef_df.Level_i==lvl_i])
-  
-  df_coef = pd.DataFrame(data = Uex_Te[{'Level_j', 'Level_i'}])
-  df_coef['qij'] = qij
-  df_coef['qji'] = qji
-  df_coef['Si'] = Si
-  df_coef['R'] = R
 
-  return qij, qji, Si, R, df_coef
+def matrix_cols_calc(ne, df_coef, Aji_full, lvl_i):
+    m_Aij = Aji_full.loc[Aji_full.Level_j == lvl_i].reset_index(drop=True)
+    m_Aji = Aji_full.loc[Aji_full.Level_i == lvl_i].reset_index(drop=True)
+    
+    Cii = -sum(ne*df_coef['Si']/18 + ne*df_coef['qij'] + m_Aij.A3)
+    Cij =  m_Aji.A3 + ne*df_coef['qji']
+    C_temp = list(Cij)
+    C_temp.insert(int(lvl_i)-1, Cii)
+    lvl_vector = pd.DataFrame(data = C_temp, columns = [str('lvl_') + lvl_i])
+    return lvl_vector
 
-
-def matrix_cols_calc(ne, Si, qij, df_coef, lvl_i):
-  mask_idx_Aji =  df_coef.iloc[df_coef.index < int(lvl_i)-1].index
-  m_Aji = df_coef
-  m_Aji.Aji[mask_idx_Aji] = 1e-30
-  mask_idx_Aij =  df_coef.iloc[df_coef.index > int(lvl_i)-1].index
-  m_Aij = df_coef
-  m_Aij.Aji[mask_idx_Aij] = 1e-30
-  Cii = -sum(ne*df_coef['Si']/18 + ne*df_coef['qij'] + m_Aij.Aji)
-  Cij =  m_Aji.Aji + ne*df_coef['qji'] #? check if it works correctly
-  C_temp = list(Cij)
-  C_temp.insert(int(lvl_i)-1, Cii)
-  lvl_vector = pd.DataFrame(data = C_temp, columns = [str('lvl_') + lvl_i])
-  
-  return lvl_vector
 
 #constants
-ion_potential = 198310.8
+
+
+e = 4.8e-10
 eV = 8.61732814974056E-05
 h = 4.135667669e-15 #eV*s
 c = 29979245800 #cm/s
 const = 2.1716e-8 #cm3 s-1 #for excitation rate coef
 IH = 13.6048 #eV
-kB = 8.617e-5 #eV/K
+ion_potential = 198310.8 * h * c # cm-1 -> eV
 
-
-df_ex, df_i, df_config, Aki_adas = read_adas4("helike_pb04he0.dat", 'S') 
+df_ex, df_i, df_config, Aki_adas = read_adas4("helike_hps02he.dat", 'S') 
 _, df_r, _, _ = read_adas4("helike_kvi97#he0.dat", 'R')
 
 
-
-'''
-Te1 = input('Choose temperature in range [0.043087, 43.086641] eV \n')
+Te1 = input('Choose temperature in range [0.99961, 19992.201307] eV \n')
 ne = float(input('Choose electron density in [0.1, 10]*e+12 cm**-3 \n')) * 1e12  # Electron density in cm**-3
 
-# почему при Te < 5 получается отриц населенности (все населенности - )
 
 """
 Стационарный случай - 
@@ -222,13 +208,107 @@ ne = float(input('Choose electron density in [0.1, 10]*e+12 cm**-3 \n')) * 1e12 
 """
 Aji_full = pd.DataFrame()
 df_M =  pd.DataFrame()
+
 for i in list(range(1, 20)):
-  qij, qji, Si, R, df_coef = coef_calc(df_ex, df_config, df_r, df_i, Te1, str(i))
-  #Aji, df_coef = nist_preproc(df_nist, df_config, df_coef, str(i))
-  Aji, df_coef = adas_Aij(Aki_adas, df_coef, str(i))
-  #print(Aji)
+  Aji = adas_Aij(Aki_adas, str(i))
   Aji_full = pd.concat([Aji_full, Aji])
-  df_M[str('lvl_') + str(i)] = matrix_cols_calc(ne, Si, qij, df_coef, str(i))
+
+'''
+# works for lvl 1
+    l = []
+    for i in list(range(1, 20)):
+      if str(i) not in list(Aki_adas.Level_j.loc[Aki_adas.Level_i == lvl_i]) and i != int(lvl_i):
+        l.append(str(i))
+'''
+
+Te_range = [float(j) for j in df_ex.columns[2:]]
+if float(Te1) not in Te_range:
+    df_ex[Te1] = interp_coef(Te1, Te_range, df_ex)
+
+
+df_coef = pd.DataFrame()
+qij_list = []
+qji_list = []
+for i in list(range(1, 19)):
+    lvl_i = str(i)
+    Yij = df_ex[{'Level_i', 'Level_j', Te1}].loc[(df_ex.Level_i == lvl_i)].reset_index(drop=True)
+    
+    lvl_j = list(Yij['Level_j'])
+    
+    dE = abs(df_config['Energy_eV'].loc[df_config['Level_i'].isin(lvl_j)]- float(
+        df_config['Energy_eV'].loc[df_config['Level_i'] == lvl_i])).reset_index(drop=True) 
+    
+    wi = float(df_config['degeneracy'].loc[df_config['Level_i'] == lvl_i])
+    wj = df_config['degeneracy'].loc[df_config['Level_i'].isin(lvl_j)].reset_index(drop=True)
+    
+    Y = Yij[Te1].reset_index(drop=True)
+    
+    qij = const / wi * (IH/float(Te1))**0.5 * np.exp(-dE/float(Te1)) * Y
+    
+    qji = wi / wj * np.exp(-dE/float(Te1)) * qij
+    
+    #qji = const * 1/wj*(IH/float(Te1))**0.5*Y
+    
+    df_coef = pd.concat([df_coef, pd.DataFrame(data = Yij[{'Level_j', 'Level_i'}])], axis=0)
+    for i in qij.values:
+        qij_list.append(float(i))
+    for i in qji.values:
+        qji_list.append(float(i))  
+
+df_coef['qij'] = qij_list
+df_coef['qji'] = qji_list
+
+
+
+
+
+lvl_i = '5'
+Yij = df_ex[{'Level_i', 'Level_j', Te1}].loc[(df_ex.Level_i == lvl_i)].reset_index(drop=True)
+
+lvl_j = list(Yij['Level_j'])
+
+dE = abs(df_config['Energy_eV'].loc[df_config['Level_i'].isin(lvl_j)]- float(
+    df_config['Energy_eV'].loc[df_config['Level_i'] == lvl_i])).reset_index(drop=True) 
+
+wi = float(df_config['degeneracy'].loc[df_config['Level_i'] == lvl_i])
+wj = df_config['degeneracy'].loc[df_config['Level_i'].isin(lvl_j)].reset_index(drop=True)
+
+Y = Yij[Te1].reset_index(drop=True)
+
+qij = const / wi * (IH/float(Te1))**0.5 * np.exp(-dE/float(Te1)) * Y
+
+qji = wj / wi * np.exp(-dE/float(Te1)) * qij
+
+#qji = const * 1/wj*(IH/float(Te1))**0.5*Y
+
+df_coef = pd.DataFrame(data = Yij[{'Level_j', 'Level_i'}])
+
+df_coef['qij'] = qij
+df_coef['qji'] = qji
+
+'''df_coef['qij'] = pd.concat([qji[:int(lvl_i)-1], qij[int(lvl_i)-1:]], axis=0)
+df_coef['qji'] = pd.concat([qij[:int(lvl_i)-1], 
+                qji[int(lvl_i)-1:]], axis=0)'''
+
+
+
+
+
+
+
+
+
+for i in list(range(1, 20)):
+  df_coef = coef_calc(df_ex, df_config, df_r, df_i, Te1, str(i))
+  '''
+  with pd.ExcelWriter('check_coef.xlsx',
+                    mode='a') as writer:  
+    df_coef.to_excel(writer, sheet_name= str('lvl_' + str(i)))
+    '''
+  #df_coef.to_excel('check_coef.xlsx')
+  df_M[str('lvl_') + str(i)] = matrix_cols_calc(ne, df_coef, Aji_full, str(i))
+  
+df_M.to_excel('check_matrix.xlsx')
 
 df_M = df_M.drop(0, axis = 0)
 C1 = df_M.lvl_1 * (-1)
@@ -238,13 +318,12 @@ x = np.linalg.solve(C, C1) # only sq matrix
 
 print(x)
 
-# check Aji
-
 t = pd.DataFrame(x)
 
 t668 = float(Aji_full.A3.loc[(Aji_full.Level_i == '5')&(Aji_full.Level_j == '10')])
 t728 = float(Aji_full.A3.loc[(Aji_full.Level_i == '5')&(Aji_full.Level_j == '7')])
-t706 = float(Aji_full.A3.loc[(Aji_full.Level_i == '4')&(Aji_full.Level_j == '6')])
+t706 = float(Aji_full.A3.loc[(Aji_full.Level_i == '4')&(Aji_full.Level_j == '6')])   
+
 
 R_668_728 = t668 * t.iloc[9] / t728 / t.iloc[6]
 R_706_728 = t706 * t.iloc[5] / t728 / t.iloc[6]
@@ -252,13 +331,23 @@ R_706_728 = t706 * t.iloc[5] / t728 / t.iloc[6]
 print(t668 * t.iloc[9] / t728 / t.iloc[6])
 print(t706 * t.iloc[5] / t728 / t.iloc[6])
 
+
+'''
+f = open("solved.txt", "w")
+f.write('Te \t' + str(Te1) + '\n' )
+f.write( 'ne \t' + str(ne) + '\n')
+f.write(str(x))
+f.write('\n668/728: \t' + str(R_668_728.values[0]) + '\n')
+f.write('706/728: \t' + str(R_706_728.values[0]))
+f.close()
 '''
 
+'''
 df_R1 = pd.DataFrame()
 df_R2 = pd.DataFrame()
 
-te_range = np.linspace(5, 40, 3)
-ne_range = np.linspace(1e12, 1e13, 3)
+te_range = np.linspace(0.5, 40, 5)
+ne_range = np.linspace(1e12, 1e13, 5)
 for k in te_range:    
     Te1 = k
     R1 = []
@@ -268,10 +357,12 @@ for k in te_range:
         Aji_full = pd.DataFrame()
         df_M =  pd.DataFrame()
         for i in list(range(1, 20)):
-          qij, qji, Si, R, df_coef = coef_calc(df_ex, df_config, df_r, df_i, Te1, str(i))
-          Aji, df_coef = adas_Aij(Aki_adas, df_coef, str(i))
+          Aji = adas_Aij(Aki_adas, str(i))
           Aji_full = pd.concat([Aji_full, Aji])
-          df_M[str('lvl_') + str(i)] = matrix_cols_calc(ne, Si, qij, df_coef, str(i))
+        
+        for i in list(range(1, 20)):
+          qij, qji, Si, R, df_coef = coef_calc(df_ex, df_config, df_r, df_i, Te1, str(i))
+          df_M[str('lvl_') + str(i)] = matrix_cols_calc(ne, df_coef, Aji_full, str(i))
     
         df_M = df_M.drop(0, axis = 0)
     
@@ -283,15 +374,15 @@ for k in te_range:
         print(x)
     
         t = pd.DataFrame(x)
-    
+
+        
         t668 = float(Aji_full.A3.loc[(Aji_full.Level_i == '5')&(Aji_full.Level_j == '10')])
         t728 = float(Aji_full.A3.loc[(Aji_full.Level_i == '5')&(Aji_full.Level_j == '7')])
-        t706 = float(Aji_full.A3.loc[(Aji_full.Level_i == '4')&(Aji_full.Level_j == '6')])
-    
+        t706 = float(Aji_full.A3.loc[(Aji_full.Level_i == '4')&(Aji_full.Level_j == '6')])   
         R_668_728 = t668 * t.iloc[9] / t728 / t.iloc[6]
         R_706_728 = t706 * t.iloc[5] / t728 / t.iloc[6]
-        R1.append(R_668_728.values)
-        R2.append(R_706_728.values)
+        R1.append(R_668_728.values[0])
+        R2.append(R_706_728.values[0])
         print(R_668_728)
         print(R_706_728)
 
@@ -301,4 +392,7 @@ for k in te_range:
 df_R1['ne'] = ne_range
 df_R2['ne'] = ne_range
 
+df_R1.to_excel('R_668_728.xlsx')
+df_R2.to_excel('R_706_728.xlsx')
 
+'''
